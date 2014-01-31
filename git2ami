@@ -1,0 +1,165 @@
+#!/bin/bash
+
+# git2ami - Create a new AMI from a git repository.
+# Copyright (c) 2014 b-datum - Thiago Rondon <thiago@b-datum.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+CONFIGFILE=$1
+
+if [ -z $CONFIGFILE ] ; then
+        echo "*** Use $0 <configfile>"
+        exit 1
+fi
+
+if [ ! -r $CONFIGFILE ] ; then
+        echo "*** Use $0 <configfile>"
+        exit 1
+fi
+source $CONFIGFILE
+
+export AWS_DEFAULT_REGION=$REGION
+
+for CMD_NEED in git scp ssh ec2-run-instances ec2-describe-instances ec2stop ec2-create-image aws; do
+	if ! which $CMD_NEED 2>&1 >/dev/null; then
+		echo "*** We need $CMD_NEED command"
+		exit 1
+	fi
+done
+
+if [ -z $AWS_SECRET_KEY ]; then
+	echo "*** You need to set AWS_SECRET_KEY"
+	exit 1
+fi
+
+if [ -z $AWS_ACCESS_KEY ]; then
+	echo "*** You need to set AWS_ACCESS_KEY"
+	exit 1
+fi
+
+if [ -z $FROM ] ; then
+	echo "*** We need a AMI to build the new image"
+	exit 1
+fi
+
+if [ -z $KEY_PAIR ] ; then
+	echo "*** We need a KEY_PAIR to build the new image"
+	exit 1
+fi
+
+if [ ! -r $PEM ] ; then
+	echo "*** Where is $PEM ?"
+	exit 1
+fi
+
+if [ -z $INSTANCE_TYPE ] ; then
+	echo "*** We need a INSTANCE_TYPE to build the new image"
+	exit 1
+fi
+
+if [ -z $REGION ] ; then
+	echo "*** We need a REGION to build the new image"
+	exit 1
+fi
+
+if [ ! -r $RUN ] ; then
+	echo "*** We need a script to deploy"
+	exit
+fi
+
+if ! aws ec2 describe-security-groups --region $REGION --group-name $SECURITY_GROUP 2>&1 > /dev/null; then 
+	echo "*** The security group '$SECURITY_GROUP' does not exist"
+	exit 1
+fi
+
+if ! aws ec2 describe-security-groups --region $REGION --group-name default | grep ToPort | grep " $SSH_PORT," >/dev/null; then 
+	echo "*** Please open $SSH_PORT for git2ami"
+	exit 1
+fi
+
+NEW_EC2=`ec2-run-instances $FROM \
+	-k $KEY_PAIR \
+	--instance-type $INSTANCE_TYPE \
+	--region $REGION \
+	-g $SECURITY_GROUP \
+	$EXTRA_EC2_RUN_INSTANCES \
+		| grep ^INSTANCE | awk '{ print $2 }'`
+
+[ $GIT2AMI_DEBUG ] && echo "- Create instance $NEW_EC2"
+
+sleep 2
+
+CHECK_EC2=`ec2-describe-instances \
+	--region $REGION $NEW_EC2 \
+		| grep ^INSTANCE | awk '{ print $6 }' | grep pending | wc -l`
+
+
+until [[ ${CHECK_EC2} = "0" ]]; do
+	sleep 15
+	[ $GIT2AMI_DEBUG ] && echo "- Check if instance $NEW_EC2 is running."
+	CHECK_EC2=`ec2-describe-instances \
+	--region $REGION $NEW_EC2 \
+		| grep ^INSTANCE | awk '{ print $6 }' | grep pending | wc -l`
+	sleep 15
+done
+
+IP_EC2=`ec2-describe-instances --region $REGION $NEW_EC2 \
+	| grep ^INSTANCE | awk '{ print $4 }'`
+
+[ $GIT2AMI_DEBUG ] && echo "- Get IP address ... $IP_EC2"
+
+IP_ADDRESS=$SSH_USER@$IP_EC2
+
+[ $GIT2AMI_DEBUG ] && echo "- Deploy git repository..."
+
+scp -P $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $RUN $IP_ADDRESS:
+ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS chmod +x ./`basename ${RUN}`
+
+if [ $GIT2AMI_DEBUG ]
+then
+	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS ./`basename ${RUN}`
+else
+	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS ./`basename ${RUN}` 2>&1 >/dev/null
+fi
+
+
+[ $GIT2AMI_DEBUG ] && echo "- Stop instance $NEW_EC2"
+ec2stop --region $REGION $NEW_EC2 > /dev/null
+
+CHECK_EC2=`ec2-describe-instances \
+	--region $REGION $NEW_EC2 \
+		| grep ^INSTANCE | awk '{ print $6 }' | grep stopping | wc -l`
+
+until [[ ${CHECK_EC2} = "0" ]]; do
+	sleep 15
+	[ $GIT2AMI_DEBUG ] && echo "- Check if instance $NEW_EC2 is running."
+	CHECK_EC2=`ec2-describe-instances \
+	--region $REGION $NEW_EC2 \
+		| grep ^INSTANCE | awk '{ print $6 }' | grep stopping | wc -l`
+	sleep 15
+done
+
+CURDATE=`date +%d%m%Y-%H%M%S`
+[ $GIT2AMI_DEBUG ] && echo "- Create AMI"
+NEWAMI=`ec2-create-image $NEW_EC2 \
+     --name "$PREFIX_AMI-$CURDATE" \
+     --region $REGION \
+     	| awk '{ print $2 }'`
+
+[ $GIT2AMI_DEBUG ] && echo "- New AMI is $NEWAMI"
+
+[ -z $GIT2AMI_DEBUG ] && echo $NEWAMI
+
+
