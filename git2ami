@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# TODO
+# - Check if user has permission on sudo to PACKAGER
 
 CONFIGFILE=$1
 
@@ -124,14 +126,26 @@ IP_ADDRESS=$SSH_USER@$IP_EC2
 
 [ $GIT2AMI_DEBUG ] && echo "- Deploy git repository..."
 
+# Copy deploy script
 scp -P $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $RUN $IP_ADDRESS:
-ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS chmod +x ./`basename ${RUN}`
+
+ssh_run () {
+	[ $GIT2AMI_DEBUG ] && echo "- Run $@"
+	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS "$@"
+}
+
+# Install packages
+ssh_run sudo $PACKAGER update
+ssh_run sudo $PACKAGER install -y $PACKAGES
+
+# Run script deploy
+ssh_run chmod +x ./`basename ${RUN}`
 
 if [ $GIT2AMI_DEBUG ]
 then
-	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS ./`basename ${RUN}`
+	ssh_run ./`basename ${RUN}`
 else
-	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS ./`basename ${RUN}` 2>&1 >/dev/null
+	ssh_run ./`basename ${RUN}` 2>&1 >/dev/null
 fi
 
 
