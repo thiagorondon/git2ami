@@ -34,7 +34,7 @@ source $CONFIGFILE
 
 export AWS_DEFAULT_REGION=$REGION
 
-for CMD_NEED in git scp ssh ec2-run-instances ec2-describe-instances ec2stop ec2-create-image aws; do
+for CMD_NEED in git scp ssh ec2-run-instances ec2-describe-instances ec2kill ec2stop ec2-create-image aws; do
 	if ! which $CMD_NEED 2>&1 >/dev/null; then
 		echo "*** We need $CMD_NEED command"
 		exit 1
@@ -166,13 +166,15 @@ until [[ ${CHECK_EC2} = "0" ]]; do
 done
 
 CURDATE=`date +%d%m%Y-%H%M%S`
-[ $GIT2AMI_DEBUG ] && echo "- Create AMI"
 NEWAMI=`ec2-create-image $NEW_EC2 \
      --name "$PREFIX_AMI-$CURDATE" \
      --region $REGION \
      	| awk '{ print $2 }'`
 
 [ $GIT2AMI_DEBUG ] && echo "- New AMI is $NEWAMI"
+
+[ $GIT2AMI_DEBUG ] && echo "- Terminate instance $NEW_EC2"
+ec2kill --region $REGION $NEW_EC2 > /dev/null
 
 [ -z $GIT2AMI_DEBUG ] && echo $NEWAMI
 
