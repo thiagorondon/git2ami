@@ -26,6 +26,15 @@ error_exit () {
         exit 1
 }
 
+debug_message () {
+	[ $GIT2AMI_DEBUG ] && echo "- $1"
+}
+
+ssh_run () {
+	debug_message "Run $@"
+	ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $IP_ADDRESS "$@"
+}
+
 [ -z $CONFIGFILE ] && error_exit "Use $0 <configfile>"
 [ ! -r $CONFIGFILE ] && error_exit "Use $0 <configfile>"
 
@@ -37,9 +46,22 @@ source $CONFIGFILE
 [ -z $KEY_PAIR ] && error_exit "We need a KEY_PAIR to build the new image"
 [ -z $INSTANCE_TYPE ] && error_exit "We need a INSTANCE_TYPE to build the new image"
 [ -z $REGION ] && error_exit "We need a REGION to build the new image"
+[ -z $GIT_LOCAL_TMP ] && error_exit "We need a GIT_LOCAL_TMP to build the new image"
+[ -z $GIT_REPO ] && error_exit "We need a GIT_REPO to build the new image"
 
 [ ! -r $PEM ] && error_exit "Where is $PEM ?"
 [ ! -r $RUN ] && error_exit "We need a script to deploy"
+
+[ -d $GIT_LOCAL_TMP ] && error_exit "Please, remove $GIT_LOCAL_TMP directory to prepare deploy"
+
+# Prepare
+
+debug_message "Clone $GIT_REPO"
+git clone $GIT_REPO $GIT_LOCAL_TMP
+
+[ ! -d $GIT_LOCAL_TMP/.git ] && error_exit "$GIT_LOCAL_TMP does not appear to be a git repository"
+debug_message "Remove .git directory from $GIT_REPO"
+(cd $GIT_LOCAL_TMP && rm -rf .git)
 
 export AWS_DEFAULT_REGION=$REGION
 
@@ -68,7 +90,7 @@ NEW_EC2=`ec2-run-instances $FROM \
 	$EXTRA_EC2_RUN_INSTANCES \
 		| grep ^INSTANCE | awk '{ print $2 }'`
 
-[ $GIT2AMI_DEBUG ] && echo "- Create instance $NEW_EC2"
+debug_message "Create instance $NEW_EC2"
 
 sleep 2
 
@@ -79,7 +101,7 @@ CHECK_EC2=`ec2-describe-instances \
 
 until [[ ${CHECK_EC2} = "0" ]]; do
 	sleep 15
-	[ $GIT2AMI_DEBUG ] && echo "- Check if instance $NEW_EC2 is running."
+	debug_message "Check if instance $NEW_EC2 is running."
 	CHECK_EC2=`ec2-describe-instances \
 	--region $REGION $NEW_EC2 \
 		| grep ^INSTANCE | awk '{ print $6 }' | grep pending | wc -l`
@@ -89,19 +111,21 @@ done
 IP_EC2=`ec2-describe-instances --region $REGION $NEW_EC2 \
 	| grep ^INSTANCE | awk '{ print $4 }'`
 
-[ $GIT2AMI_DEBUG ] && echo "- Get IP address ... $IP_EC2"
+debug_message "Get IP address ... $IP_EC2"
 
 IP_ADDRESS=$SSH_USER@$IP_EC2
 
-[ $GIT2AMI_DEBUG ] && echo "- Deploy git repository..."
-
 # Copy deploy script
+debug_message "Copy deploy script"
 scp -P $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $RUN $IP_ADDRESS:
 
-ssh_run () {
-	[ $GIT2AMI_DEBUG ] && echo "- Run $@"
-	ssh -p $SSH_PORT -q -i $PEM $IP_ADDRESS "$@"
-}
+# Copy git repository
+debug_message "Copy git repository..."
+echo rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_LOCAL_TMP $IP_ADDRESS:./
+ 
+rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_LOCAL_TMP $IP_ADDRESS:./
+
+
 
 # Install packages
 ssh_run sudo $PACKAGER update
@@ -118,7 +142,7 @@ else
 fi
 
 
-[ $GIT2AMI_DEBUG ] && echo "- Stop instance $NEW_EC2"
+debug_message "Stop instance $NEW_EC2"
 ec2stop --region $REGION $NEW_EC2 > /dev/null
 
 CHECK_EC2=`ec2-describe-instances \
@@ -127,7 +151,7 @@ CHECK_EC2=`ec2-describe-instances \
 
 until [[ ${CHECK_EC2} = "0" ]]; do
 	sleep 15
-	[ $GIT2AMI_DEBUG ] && echo "- Check if instance $NEW_EC2 is running."
+	debug_message "Check if instance $NEW_EC2 is running."
 	CHECK_EC2=`ec2-describe-instances \
 	--region $REGION $NEW_EC2 \
 		| grep ^INSTANCE | awk '{ print $6 }' | grep stopping | wc -l`
@@ -140,9 +164,9 @@ NEWAMI=`ec2-create-image $NEW_EC2 \
      --region $REGION \
      	| awk '{ print $2 }'`
 
-[ $GIT2AMI_DEBUG ] && echo "- New AMI is $NEWAMI"
+debug_message "New AMI is $NEWAMI"
 
-[ $GIT2AMI_DEBUG ] && echo "- Terminate instance $NEW_EC2"
+debug_message "Terminate instance $NEW_EC2"
 ec2kill --region $REGION $NEW_EC2 > /dev/null
 
 [ -z $GIT2AMI_DEBUG ] && echo $NEWAMI
