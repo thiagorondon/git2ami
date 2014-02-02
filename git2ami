@@ -21,16 +21,25 @@
 
 CONFIGFILE=$1
 
-if [ -z $CONFIGFILE ] ; then
-        echo "*** Use $0 <configfile>"
+error_exit () {
+        echo "*** ERROR: $1"
         exit 1
-fi
+}
 
-if [ ! -r $CONFIGFILE ] ; then
-        echo "*** Use $0 <configfile>"
-        exit 1
-fi
+[ -z $CONFIGFILE ] && error_exit "Use $0 <configfile>"
+[ ! -r $CONFIGFILE ] && error_exit "Use $0 <configfile>"
+
 source $CONFIGFILE
+
+[ -z $AWS_SECRET_KEY ] && error_exit "You need to set AWS_SECRET_KEY"
+[ -z $AWS_ACCESS_KEY ] && error_exit "You need to set AWS_ACCESS_KEY"
+[ -z $FROM ] && error_exit "We need a AMI to build the new image"
+[ -z $KEY_PAIR ] && error_exit "We need a KEY_PAIR to build the new image"
+[ -z $INSTANCE_TYPE ] && error_exit "We need a INSTANCE_TYPE to build the new image"
+[ -z $REGION ] && error_exit "We need a REGION to build the new image"
+
+[ ! -r $PEM ] && error_exit "Where is $PEM ?"
+[ ! -r $RUN ] && error_exit "We need a script to deploy"
 
 export AWS_DEFAULT_REGION=$REGION
 
@@ -40,46 +49,6 @@ for CMD_NEED in git scp ssh ec2-run-instances ec2-describe-instances ec2kill ec2
 		exit 1
 	fi
 done
-
-if [ -z $AWS_SECRET_KEY ]; then
-	echo "*** You need to set AWS_SECRET_KEY"
-	exit 1
-fi
-
-if [ -z $AWS_ACCESS_KEY ]; then
-	echo "*** You need to set AWS_ACCESS_KEY"
-	exit 1
-fi
-
-if [ -z $FROM ] ; then
-	echo "*** We need a AMI to build the new image"
-	exit 1
-fi
-
-if [ -z $KEY_PAIR ] ; then
-	echo "*** We need a KEY_PAIR to build the new image"
-	exit 1
-fi
-
-if [ ! -r $PEM ] ; then
-	echo "*** Where is $PEM ?"
-	exit 1
-fi
-
-if [ -z $INSTANCE_TYPE ] ; then
-	echo "*** We need a INSTANCE_TYPE to build the new image"
-	exit 1
-fi
-
-if [ -z $REGION ] ; then
-	echo "*** We need a REGION to build the new image"
-	exit 1
-fi
-
-if [ ! -r $RUN ] ; then
-	echo "*** We need a script to deploy"
-	exit
-fi
 
 if ! aws ec2 describe-security-groups --region $REGION --group-name $SECURITY_GROUP 2>&1 > /dev/null; then 
 	echo "*** The security group '$SECURITY_GROUP' does not exist"
