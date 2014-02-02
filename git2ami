@@ -73,7 +73,7 @@ source $CONFIGFILE
 [ -z $GIT_REPO ] && error_exit "We need a GIT_REPO to build the new image"
 
 [ ! -r $PEM ] && error_exit "Where is $PEM ?"
-[ ! -r $RUN ] && error_exit "We need a script to deploy"
+[ ! -r $GIT_LOCAL_TMP/$RUN ] && error_exit "We need a script to deploy"
 
 export AWS_DEFAULT_REGION=$REGION
 
@@ -129,12 +129,10 @@ IP_ADDRESS=$SSH_USER@$IP_EC2
 
 # Copy deploy script
 debug_message "Copy deploy script"
-scp -P $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $RUN $IP_ADDRESS:
+scp -P $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $GIT_LOCAL_TMP/$RUN $IP_ADDRESS:
 
 # Copy git repository
 debug_message "Copy git repository..."
-echo rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_LOCAL_TMP $IP_ADDRESS:./
- 
 rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_LOCAL_TMP $IP_ADDRESS:./
 
 # Install packages
