@@ -18,8 +18,14 @@
 
 # TODO
 # - Check if user has permission on sudo to PACKAGER
+# - Hook for test deploy
 
-CONFIGFILE=$1
+VERSION=0.01
+
+if [ "$1" == '--version' ] ; then
+	echo "$0 version $VERSION"
+	exit 1
+fi
 
 error_exit () {
         echo "*** ERROR: $1"
@@ -35,8 +41,25 @@ ssh_run () {
 	ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no' $IP_ADDRESS "$@"
 }
 
-[ -z $CONFIGFILE ] && error_exit "Use $0 <configfile>"
-[ ! -r $CONFIGFILE ] && error_exit "Use $0 <configfile>"
+GIT_REPO=$1
+GIT_LOCAL_TMP=$2
+
+[ -z $GIT_REPO ] && error_exit "Use $0 <git repository> <temporary dir>"
+[ -z $GIT_LOCAL_TMP ] && error_exit "Use $0 <git repository> <temporary dir>"
+
+[ -d $GIT_LOCAL_TMP ] && error_exit "Please, remove temporary dir ($GIT_LOCAL_TMP)."
+
+# Prepare
+debug_message "Clone $GIT_REPO"
+git clone -q $GIT_REPO $GIT_LOCAL_TMP
+
+[ ! -d $GIT_LOCAL_TMP/.git ] && error_exit "$GIT_LOCAL_TMP does not appear to be a git repository"
+debug_message "Remove .git directory from $GIT_REPO"
+(cd $GIT_LOCAL_TMP && rm -rf .git)
+
+CONFIGFILE=$GIT_LOCAL_TMP/.git2ami
+
+[ ! -r $CONFIGFILE ] && error_exit "Where is .git2ami in git repository ?"
 
 source $CONFIGFILE
 
@@ -52,20 +75,9 @@ source $CONFIGFILE
 [ ! -r $PEM ] && error_exit "Where is $PEM ?"
 [ ! -r $RUN ] && error_exit "We need a script to deploy"
 
-[ -d $GIT_LOCAL_TMP ] && error_exit "Please, remove $GIT_LOCAL_TMP directory to prepare deploy"
-
-# Prepare
-
-debug_message "Clone $GIT_REPO"
-git clone $GIT_REPO $GIT_LOCAL_TMP
-
-[ ! -d $GIT_LOCAL_TMP/.git ] && error_exit "$GIT_LOCAL_TMP does not appear to be a git repository"
-debug_message "Remove .git directory from $GIT_REPO"
-(cd $GIT_LOCAL_TMP && rm -rf .git)
-
 export AWS_DEFAULT_REGION=$REGION
 
-for CMD_NEED in git scp ssh ec2-run-instances ec2-describe-instances ec2kill ec2stop ec2-create-image aws; do
+for CMD_NEED in rsync git scp ssh ec2-run-instances ec2-describe-instances ec2kill ec2stop ec2-create-image aws; do
 	if ! which $CMD_NEED 2>&1 >/dev/null; then
 		echo "*** We need $CMD_NEED command"
 		exit 1
@@ -125,11 +137,11 @@ echo rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $
  
 rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_LOCAL_TMP $IP_ADDRESS:./
 
-
-
 # Install packages
-ssh_run sudo $PACKAGER update
-ssh_run sudo $PACKAGER install -y $PACKAGES
+if [ $PACKAGER ] ; then
+	ssh_run sudo $PACKAGER update
+	[ $PACKAGES ] && ssh_run sudo $PACKAGER install -y $PACKAGES
+fi
 
 # Run script deploy
 ssh_run chmod +x ./`basename ${RUN}`
