@@ -140,7 +140,7 @@ rsync -avz -e "ssh -p $SSH_PORT -q -i $PEM -o 'StrictHostKeyChecking=no'" $GIT_L
 # Install packages
 if [ $PACKAGER ] ; then
 	ssh_run sudo $PACKAGER update
-	[ $PACKAGES ] && ssh_run sudo $PACKAGER install -y $PACKAGES
+	ssh_run sudo $PACKAGER install -y $PACKAGES
 fi
 
 # Run script deploy
