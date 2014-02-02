@@ -1,16 +1,28 @@
 git2ami
 =======
 
-Create a new AMI from a git repository.
+Create a new Amazon Machine Image from a git repository.
+
+You need just bash script and Amazon EC2 API Tools.
+
+- http://www.gnu.org/software/bash/
+- http://aws.amazon.com/developertools/351
+
+How ? Why ?
+===========
+
+You just need a ".git2ami" file in your repository with all instructions for build your new AMI.
+
+It's a good way to manage changes, continuous integration and auto-scaling in Amazon EC2.
 
 Synopsis
 ========
 
 ```
-$ ./git2ami path/to/git.cookbook
+$ ./git2ami user@repo.domain.org:app.git tmpdir
 ami-ca20XXXX
 
-$ GIT2AMI_DEBUG=1 git2ami path/to/git.cookbook
+$ GIT2AMI_DEBUG=1 git2ami user@repo.domain.org:app.git tmpdir
 - Create instance i-4d5dXXXX
 - Check if instance i-4d5dXXXX is running.
 - Get IP address ... ec2-54-214-000-00.us-west-2.compute.amazonaws.com
@@ -70,6 +82,20 @@ PREFIX_AMI=GIT2AMI
 # Deploy
 #
 
+PACKAGER=aptitude
+PACKAGES="build-essentials nginx"
+
 RUN=scripts/deploy.sh
 ```
+
+NO WARRANTY
+===========
+
+This software is provided "as-is," without any express or implied warranty. In no event shall the author be held liable for any damages arising from the use of the software.
+
+LICENSE
+=======
+
+GPLv3
+
 
